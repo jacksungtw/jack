@@ -6,6 +6,11 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "15mb" }));
 
+app.use((req, res, next) => {
+  res.setTimeout(120000); // 120 秒
+  next();
+});
+
 // Health check
 app.get("/", (_req, res) => res.send("✅ GPT-5 Proxy running"));
 
