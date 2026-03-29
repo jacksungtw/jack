@@ -1,0 +1,10 @@
+Flask==2.3.3
+flask-cors==4.0.0
+requests==2.31.0
+python-dotenv==1.0.0
+gunicorn==21.2.0
+
+# 可選：如果需要額外功能
+# numpy==1.24.3
+# pillow==10.0.1
+# opencv-python-headless==4.8.1.78
