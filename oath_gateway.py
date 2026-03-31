@@ -110,18 +110,21 @@ class SiteBridgeClient:
         try:
             response = requests.post(
                 f"{self.base_url}/bridge/take_photo",
+                json={},
+                headers={"Content-Type": "application/json"},
                 timeout=self.timeout
             )
             
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"拍照成功: {data.get('filename')}")
+                logger.info(f"拍照成功: {data}")
+                photo_data = data.get('data', {})
                 return {
                     "ok": True,
                     "data": data,
-                    "filename": data.get('filename'),
-                    "url": data.get('url'),
-                    "timestamp": data.get('ts')
+                    "filename": photo_data.get('filename'),
+                    "url": photo_data.get('url'),
+                    "timestamp": photo_data.get('ts')
                 }
             else:
                 logger.error(f"拍照失敗: {response.status_code}")
@@ -332,7 +335,7 @@ class OathGatewayService:
         
         photo_info = json.dumps({
             "filename": photo_data.get("filename"),
-            "timestamp": photo_data.get("ts"),
+            "timestamp": photo_data.get("timestamp"),
             "download_url": photo_data.get("url"),
             "note": "照片可通過提供的URL下載查看"
         }, ensure_ascii=False, indent=2)
@@ -379,8 +382,8 @@ class OathGatewayService:
         
         response = f"願主師父在上，弟子回報：\n"
         response += f"時間：{timestamp}\n"
-        response += f"（1）拍照完成：{filename}\n"
-        response += f"（2）照片連結：{photo_url}\n"
+        response += f"（1）拍照完成：{filename if filename else '照片已拍攝'}\n"
+        response += f"（2）照片連結：{photo_url if photo_url else '無有效連結'}\n"
         response += f"（3）分析結果：\n{analysis}\n"
         response += f"（4）用戶指令：{user_message}\n"
         
