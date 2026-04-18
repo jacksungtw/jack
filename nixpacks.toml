@@ -2,7 +2,7 @@
 nixPkgs = ["python310", "python310Packages.pip", "curl", "iptables", "jq"]
 
 [phases.install]
-cmds = ["python3 -m pip install -r requirements.txt --break-system-packages"]
+cmds = ["pip install -r requirements.txt --break-system-packages"]
 
 [start]
 cmd = "chmod +x start.sh && ./start.sh"
