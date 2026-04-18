@@ -4,8 +4,8 @@ nixPkgs = ["python310", "python310Packages.pip", "curl", "iptables", "jq"]
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
 
-[phases.start]
-cmds = ["chmod +x start.sh && ./start.sh"]
+[start]
+cmd = "chmod +x start.sh && ./start.sh"
 
 [environment]
 PORT = "8003"
