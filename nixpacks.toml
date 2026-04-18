@@ -1,19 +1,11 @@
-# Nixpacks 配置
-# https://nixpacks.com/docs/configuration
-
 [phases.setup]
-cmds = [
-    "apt-get update",
-    "apt-get install -y curl iptables jq",
-]
+nixPkgs = ["python310", "python310Packages.pip", "curl", "iptables", "jq"]
 
 [phases.install]
-cmds = [
-    "pip install -r requirements.txt",
-]
+cmds = ["pip install -r requirements.txt"]
 
-[start]
-cmd = "./start.sh"
+[phases.start]
+cmds = ["chmod +x start.sh && ./start.sh"]
 
 [environment]
 PORT = "8003"
