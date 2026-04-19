@@ -28,9 +28,9 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     
     # 登入 Tailscale
     echo "🔐 正在登入 Tailscale..."
-    tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="railway-oath-gateway" --accept-routes
+    tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="railway-oath-gateway" --accept-routes || echo "⚠️ 警告: Tailscale 登入失敗，繼續運行但無雲地連線"
     
-    echo "✅ Tailscale 已連線"
+    echo "✅ Tailscale 已連線或跳過"
 else
     echo "⚠️ 警告: TAILSCALE_AUTHKEY 未設置，跳過雲地連線，僅提供公網 API 功能"
 fi
