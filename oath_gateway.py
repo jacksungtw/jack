@@ -93,7 +93,7 @@ class SiteBridgeClient:
         """檢查 Site Bridge 健康狀態"""
         try:
             response = requests.get(
-                f"{self.base_url}/bridge/health",
+                f"{self.base_url}/health",
                 timeout=5
             )
             return {
@@ -109,7 +109,7 @@ class SiteBridgeClient:
         """通過 Site Bridge 拍照"""
         try:
             response = requests.post(
-                f"{self.base_url}/bridge/take_photo",
+                f"{self.base_url}/take_photo",
                 json={},
                 headers={"Content-Type": "application/json"},
                 timeout=self.timeout
