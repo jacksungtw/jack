@@ -499,6 +499,7 @@ def list_models():
         ]
     })
 
+@app.route('/chat/completions', methods=['POST'])
 @app.route('/v1/chat/completions', methods=['POST'])
 def chat_completions():
     """聊天完成 (OpenAI 兼容)"""

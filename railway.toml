@@ -1,0 +1,10 @@
+[build]
+builder = "dockerfile"
+dockerfile = "Dockerfile"
+
+[deploy]
+startCommand = "./start.sh"
+healthCheckPath = "/health"
+healthCheckTimeout = 60
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
