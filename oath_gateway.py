@@ -9,6 +9,7 @@ import os
 import json
 import time
 import logging
+import socket
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -678,6 +679,137 @@ def rag_search():
     except Exception as e:
         logger.error(f"RAG 搜索錯誤: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route('/diagnostics', methods=['GET'])
+def diagnostics():
+    """診斷端點 - 測試連線與設定"""
+    try:
+        # 基本服務資訊
+        diagnostics_info = {
+            "service": Config.SERVICE_NAME,
+            "version": Config.SERVICE_VERSION,
+            "timestamp": datetime.now().isoformat(),
+            "environment": {
+                "SITE_BRIDGE_URL": Config.SITE_BRIDGE_URL,
+                "TAILSCALE_AUTHKEY_set": bool(os.environ.get("TAILSCALE_AUTHKEY")),
+                "DEBUG": Config.DEBUG,
+                "HOST": os.environ.get("HOST", "0.0.0.0"),
+                "PORT": os.environ.get("PORT", "8000")
+            }
+        }
+        
+        # 網路連線測試
+        network_tests = []
+        
+        # 1. 測試 bridge 連線 (HTTP)
+        bridge_host = "100.88.112.41"
+        bridge_port = 9002
+        try:
+            # TCP 連線測試
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            tcp_result = sock.connect_ex((bridge_host, bridge_port))
+            sock.close()
+            
+            network_tests.append({
+                "test": "tcp_connect",
+                "target": f"{bridge_host}:{bridge_port}",
+                "success": tcp_result == 0,
+                "error_code": tcp_result if tcp_result != 0 else None,
+                "error_message": os.strerror(tcp_result) if tcp_result != 0 else None
+            })
+            
+            # HTTP 健康檢查測試
+            try:
+                response = requests.get(f"http://{bridge_host}:{bridge_port}/health", timeout=5)
+                network_tests.append({
+                    "test": "http_health_check",
+                    "target": f"http://{bridge_host}:{bridge_port}/health",
+                    "success": response.status_code == 200,
+                    "status_code": response.status_code,
+                    "response_time_ms": response.elapsed.total_seconds() * 1000 if hasattr(response, 'elapsed') else None
+                })
+            except Exception as e:
+                network_tests.append({
+                    "test": "http_health_check",
+                    "target": f"http://{bridge_host}:{bridge_port}/health",
+                    "success": False,
+                    "error": str(e)
+                })
+                
+        except Exception as e:
+            network_tests.append({
+                "test": "tcp_connect",
+                "target": f"{bridge_host}:{bridge_port}",
+                "success": False,
+                "error": str(e)
+            })
+        
+        # 2. 測試本地迴路
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            local_result = sock.connect_ex(("127.0.0.1", int(os.environ.get("PORT", 8000))))
+            sock.close()
+            network_tests.append({
+                "test": "localhost_service",
+                "target": f"127.0.0.1:{os.environ.get('PORT', 8000)}",
+                "success": local_result == 0,
+                "error_code": local_result if local_result != 0 else None
+            })
+        except Exception as e:
+            network_tests.append({
+                "test": "localhost_service",
+                "target": f"127.0.0.1:{os.environ.get('PORT', 8000)}",
+                "success": False,
+                "error": str(e)
+            })
+        
+        # 3. DNS 解析測試
+        try:
+            resolved_ip = socket.gethostbyname(bridge_host)
+            network_tests.append({
+                "test": "dns_resolution",
+                "hostname": bridge_host,
+                "resolved_ip": resolved_ip,
+                "success": True
+            })
+        except Exception as e:
+            network_tests.append({
+                "test": "dns_resolution",
+                "hostname": bridge_host,
+                "success": False,
+                "error": str(e)
+            })
+        
+        diagnostics_info["network_tests"] = network_tests
+        
+        # Site Bridge 客戶端測試
+        bridge_health = service.site_bridge.health()
+        diagnostics_info["site_bridge"] = {
+            "health_check": bridge_health,
+            "client_base_url": service.site_bridge.base_url,
+            "client_timeout": service.site_bridge.timeout
+        }
+        
+        # 總結狀態
+        all_network_tests_pass = all(test.get("success", False) for test in network_tests)
+        diagnostics_info["summary"] = {
+            "all_tests_pass": all_network_tests_pass and bridge_health["ok"],
+            "network_tests_pass": all_network_tests_pass,
+            "bridge_health_ok": bridge_health["ok"],
+            "service_healthy": len(Config.validate()) == 0
+        }
+        
+        return jsonify(diagnostics_info)
+        
+    except Exception as e:
+        logger.error(f"診斷端點錯誤: {e}")
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 # ============================================================================
 # 輔助函數
