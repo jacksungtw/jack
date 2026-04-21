@@ -18,11 +18,16 @@ if [ -z "$DEEPSEEK_API_KEY" ]; then
     exit 1
 fi
 
+# 1. 環境準備：確保 Python 支援 SOCKS5 代理
+echo "📦 正在安裝 Python SOCKS 支援插件 (pysocks)..."
+python3 -m pip install -q pysocks
+
+# 2. 配置 Tailscale
 if [ -z "$TAILSCALE_AUTHKEY" ]; then
     echo "⚠️  警告: TAILSCALE_AUTHKEY 未设置，无法连接 Tailscale"
 else
-    echo    # 啟動 tailscaled (使用 /tmp 避免權限問題)
     echo "啟動 tailscaled 服務 (加強代理模式)..."
+    mkdir -p /tmp/tailscale
     tailscaled --tun=userspace-networking \
                --statedir=/tmp/tailscale \
                --socket=/tmp/tailscaled.sock \
@@ -44,6 +49,7 @@ else
     echo "✅ Tailscale 已連線"
     
     # 關鍵：配置代理環境變數 (雙重大小寫確保兼容性)
+    # Python requests 需要 pysocks 才能處理 socks5:// 開頭的 URL
     export ALL_PROXY="socks5://localhost:1055"
     export all_proxy="socks5://localhost:1055"
     export HTTP_PROXY="http://localhost:1055"
@@ -57,10 +63,8 @@ else
     
     echo "🌐 代理已配置: ALL_PROXY=$ALL_PROXY"
     
-    # 等待網絡穩定並確保代理已工作
+    # 等待網絡穩定
     sleep 3
-else
-    echo "⚠️ 警告: TAILSCALE_AUTHKEY 未設置，跳過雲地連線"
 fi
 
 # 3. 设置 Site Bridge URL
@@ -74,26 +78,27 @@ if [ -z "$PORT" ]; then
     export PORT=8000
 fi
 
-# 5. 強化連通性測試 (最多重試 3 次)
+# 5. 強化連通性測試 (使用 SOCKS5 顯式測試)
 echo "🔗 正在測試地端連線 ($SITE_BRIDGE_URL)..."
 MAX_RETRIES=3
 RETRY_COUNT=0
 SUCCESS=false
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s --max-time 5 "$SITE_BRIDGE_URL/bridge/health" > /dev/null; then
-        echo "✅ 地端連線測試成功！"
+    # 這裡明確指定 --proxy socks5h:// 以測試隧道連通性
+    if curl -s --proxy socks5h://localhost:1055 --max-time 10 "$SITE_BRIDGE_URL/bridge/health" > /dev/null; then
+        echo "✅ 地端連線測試成功 (SOCKS5 隧道暢通)！"
         SUCCESS=true
         break
     else
         RETRY_COUNT=$((RETRY_COUNT+1))
-        echo "⚠️  連線測試失敗 (第 $RETRY_COUNT 次)，稍後重試..."
+        echo "⚠️  連線測試失敗 (第 $RETRY_COUNT 次)，可能代理尚未就緒..."
         sleep 5
     fi
 done
 
 if [ "$SUCCESS" = false ]; then
-    echo "❌ 警告: 地端連線測試最終失敗，但程序將嘗試啟動..."
+    echo "❌ 警告: 地端連線測試最終失敗，即將啟動網關..."
 fi
 
 # 6. 啟動 Gunicorn
