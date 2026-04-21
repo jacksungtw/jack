@@ -105,7 +105,7 @@ class SiteBridgeClient:
         try:
             # 強制使用 Tailscale 代理
             response = requests.get(
-                f"{self.base_url}/health",
+                f"{self.base_url}/bridge/health",
                 timeout=5,
                 proxies=TAILSCALE_PROXY
             )
@@ -123,7 +123,7 @@ class SiteBridgeClient:
         try:
             # 強制使用 Tailscale 代理
             response = requests.post(
-                f"{self.base_url}/take_photo",
+                f"{self.base_url}/bridge/take_photo",
                 json={},
                 headers={"Content-Type": "application/json"},
                 timeout=self.timeout,
