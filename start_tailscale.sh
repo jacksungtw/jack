@@ -18,9 +18,8 @@ if [ -z "$DEEPSEEK_API_KEY" ]; then
     exit 1
 fi
 
-# 1. 環境準備：確保 Python 支援 SOCKS5 代理
-echo "📦 正在安裝 Python SOCKS 支援插件 (pysocks)..."
-python3 -m pip install -q pysocks
+# 1. 環境準備：依賴已由 requirements.txt 處理
+echo "📦 依賴項檢查完成..."
 
 # 2. 配置 Tailscale
 if [ -z "$TAILSCALE_AUTHKEY" ]; then

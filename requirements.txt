@@ -3,6 +3,7 @@ flask-cors==4.0.0
 requests==2.31.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
+pysocks==1.7.1
 
 # 可選：如果需要額外功能
 # numpy==1.24.3
