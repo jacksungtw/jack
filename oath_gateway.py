@@ -25,6 +25,16 @@ app = Flask(__name__)
 CORS(app)  # 允許跨域
 
 # ============================================================================
+# 代理配置 (用於 Tailscale 用戶態網絡)
+# ============================================================================
+
+# 全局代理配置 (透過 Tailscale 用戶態網絡導航)
+TAILSCALE_PROXY = {
+    "http": "socks5h://localhost:1055",
+    "https": "socks5h://localhost:1055"
+}
+
+# ============================================================================
 # 環境變數配置
 # ============================================================================
 
@@ -93,9 +103,11 @@ class SiteBridgeClient:
     def health(self) -> Dict[str, Any]:
         """檢查 Site Bridge 健康狀態"""
         try:
+            # 強制使用 Tailscale 代理
             response = requests.get(
                 f"{self.base_url}/health",
-                timeout=5
+                timeout=5,
+                proxies=TAILSCALE_PROXY
             )
             return {
                 "ok": response.status_code == 200,
@@ -109,11 +121,13 @@ class SiteBridgeClient:
     def take_photo(self) -> Dict[str, Any]:
         """通過 Site Bridge 拍照"""
         try:
+            # 強制使用 Tailscale 代理
             response = requests.post(
                 f"{self.base_url}/take_photo",
                 json={},
                 headers={"Content-Type": "application/json"},
-                timeout=self.timeout
+                timeout=self.timeout,
+                proxies=TAILSCALE_PROXY
             )
             
             if response.status_code == 200:
@@ -698,12 +712,16 @@ def diagnostics():
             }
         }
         
+        # 動態解析 SITE_BRIDGE_URL
+        import urllib.parse
+        parsed_bridge = urllib.parse.urlparse(Config.SITE_BRIDGE_URL)
+        bridge_host = parsed_bridge.hostname or "100.88.112.41"
+        bridge_port = parsed_bridge.port or 9001
+        
         # 網路連線測試
         network_tests = []
         
-        # 1. 測試 bridge 連線 (HTTP)
-        bridge_host = "100.88.112.41"
-        bridge_port = 9002
+        # 1. 測試 bridge 連線
         try:
             # TCP 連線測試
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
