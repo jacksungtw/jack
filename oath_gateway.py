@@ -359,10 +359,13 @@ class OathGatewayService:
 
 請以清晰、專業的方式回復。"""
         
+        # 修正：正確從嵌套的 data 中獲取資訊
+        real_photo_info = photo_data.get("data", {}) if "data" in photo_data else photo_data
+        
         photo_info = json.dumps({
-            "filename": photo_data.get("filename"),
-            "timestamp": photo_data.get("timestamp"),
-            "download_url": photo_data.get("url"),
+            "filename": real_photo_info.get("filename"),
+            "timestamp": real_photo_info.get("ts"),
+            "download_url": real_photo_info.get("url"),
             "note": "照片可通過提供的URL下載查看"
         }, ensure_ascii=False, indent=2)
         
@@ -550,19 +553,60 @@ def chat_completions():
             
             if result["ok"]:
                 response_text = result["response"]
-                return jsonify({
-                    "id": f"chatcmpl-{int(time.time())}",
-                    "object": "chat.completion",
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": response_text
-                        },
-                        "finish_reason": "stop"
-                    }]
-                })
+                
+                if stream:
+                    # 如果需要流式響應，模擬 OpenAI 格式的流
+                    def generate_photo_stream():
+                        chunk_id = f"chatcmpl-{int(time.time())}"
+                        # 模擬一個字一個字傳出的效果 (或者直接傳一整塊但符合格式)
+                        # 為求穩定，我們先傳一個包含完整內容的 chunk
+                        chunk = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": response_text},
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        
+                        # 發送結束標誌
+                        end_chunk = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": "stop"
+                            }]
+                        }
+                        yield f"data: {json.dumps(end_chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    
+                    return Response(
+                        stream_with_context(generate_photo_stream()),
+                        mimetype='text/event-stream'
+                    )
+                else:
+                    # 非流式響應
+                    return jsonify({
+                        "id": f"chatcmpl-{int(time.time())}",
+                        "object": "chat.completion",
+                        "model": model,
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": response_text
+                            },
+                            "finish_reason": "stop"
+                        }]
+                    })
             else:
                 return jsonify({
                     "error": {
