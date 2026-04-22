@@ -281,9 +281,20 @@ class OathGatewayService:
                 "step": "take_photo"
             }
         
-        photo_data = photo_result["data"]
-        filename = photo_data.get("filename")
-        photo_url = photo_data.get("url")
+        # 修正：正確提取 filename 和 url (從 photo_result 直接讀取，因為 SiteBridgeClient 已經幫我們提取過了)
+        filename = photo_result.get("filename")
+        photo_url = photo_result.get("url")
+        photo_data = photo_result.get("data", {}) # 保留原始 JSON 給 AI 分析
+
+        # 智能轉換：如果網址是私有 IP，轉換為 Tailscale 節點 IP 以確保外部可連
+        if photo_url and ("192.168." in photo_url or "127.0.0.1" in photo_url or "localhost" in photo_url):
+            import urllib.parse
+            parsed = urllib.parse.urlparse(photo_url)
+            # 獲取 Site Bridge 的 host (100.88.112.41)
+            bridge_host = urllib.parse.urlparse(Config.SITE_BRIDGE_URL).hostname
+            if bridge_host:
+                photo_url = parsed._replace(netloc=f"{bridge_host}:{parsed.port or 8800}").geturl()
+                logger.info(f"網址已轉換為 Tailscale IP: {photo_url}")
         
         # 保存照片信息
         self.last_photo_result = {
