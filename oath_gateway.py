@@ -52,6 +52,7 @@ class Config:
     
     # 外部服務配置
     SITE_BRIDGE_URL = os.environ.get("SITE_BRIDGE_URL", "")
+    SITE_BRIDGE_2_URL = os.environ.get("SITE_BRIDGE_2_URL", "")
     DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     RAG_URL = os.environ.get("RAG_URL", "")
@@ -257,7 +258,13 @@ class OathGatewayService:
     """Oath Gateway 核心服務"""
     
     def __init__(self):
-        self.site_bridge = SiteBridgeClient(Config.SITE_BRIDGE_URL)
+        # 設置多個 Site Bridges
+        self.bridges = {
+            "jetson1": SiteBridgeClient(Config.SITE_BRIDGE_URL)
+        }
+        if Config.SITE_BRIDGE_2_URL:
+            self.bridges["jetson2"] = SiteBridgeClient(Config.SITE_BRIDGE_2_URL)
+            
         self.deepseek = DeepSeekClient(Config.DEEPSEEK_API_KEY)
         self.openai = OpenAIClient(Config.OPENAI_API_KEY) if Config.OPENAI_API_KEY else None
         
@@ -265,36 +272,49 @@ class OathGatewayService:
         self.last_photo_result = None
         self.last_analysis_result = None
         
+    def _get_target_bridge(self, user_message: str):
+        """根據用戶指令判斷要使用哪台 Jetson"""
+        msg = user_message.lower()
+        if any(kw in msg for kw in ["jetson2", "jetson 2", "二號機", "2號機", "jack"]):
+            if "jetson2" in self.bridges:
+                return self.bridges["jetson2"], "jetson2", Config.SITE_BRIDGE_2_URL
+            else:
+                logger.warning("指令要求 Jetson 2，但 SITE_BRIDGE_2_URL 未配置，回退到 Jetson 1")
+        
+        return self.bridges["jetson1"], "jetson1", Config.SITE_BRIDGE_URL
+
     def process_photo_inspection(self, user_message: str) -> Dict[str, Any]:
         """
         處理拍照檢查請求
         返回: {"ok": bool, "photo_data": dict, "analysis": str, "download_url": str}
         """
-        logger.info(f"處理拍照檢查: {user_message}")
+        # 判斷目標機器
+        bridge, site_id, bridge_base_url = self._get_target_bridge(user_message)
+        logger.info(f"使用 {site_id} 處理拍照檢查: {user_message}")
         
         # 1. 拍照
-        photo_result = self.site_bridge.take_photo()
+        photo_result = bridge.take_photo()
         if not photo_result["ok"]:
             return {
                 "ok": False,
-                "error": f"拍照失敗: {photo_result.get('error')}",
+                "error": f"[{site_id}] 拍照失敗: {photo_result.get('error')}",
                 "step": "take_photo"
             }
         
-        # 修正：正確提取 filename 和 url (從 photo_result 直接讀取，因為 SiteBridgeClient 已經幫我們提取過了)
+        # 提取資訊
         filename = photo_result.get("filename")
         photo_url = photo_result.get("url")
-        photo_data = photo_result.get("data", {}) # 保留原始 JSON 給 AI 分析
+        photo_data = photo_result.get("data", {})
 
-        # 智能轉換：如果網址是私有 IP，轉換為 Tailscale 節點 IP 以確保外部可連
+        # 智能轉換：如果網址是私有 IP，轉換為 Tailscale 節點 IP
         if photo_url and ("192.168." in photo_url or "127.0.0.1" in photo_url or "localhost" in photo_url):
             import urllib.parse
             parsed = urllib.parse.urlparse(photo_url)
-            # 獲取 Site Bridge 的 host (100.88.112.41)
-            bridge_host = urllib.parse.urlparse(Config.SITE_BRIDGE_URL).hostname
+            # 獲取目標 Site Bridge 的 host (自動適配不同機器)
+            bridge_host = urllib.parse.urlparse(bridge_base_url).hostname
             if bridge_host:
                 photo_url = parsed._replace(netloc=f"{bridge_host}:{parsed.port or 8800}").geturl()
-                logger.info(f"網址已轉換為 Tailscale IP: {photo_url}")
+                logger.info(f"網址已轉換為 Tailscale IP ({site_id}): {photo_url}")
         
         # 保存照片信息
         self.last_photo_result = {
@@ -324,7 +344,8 @@ class OathGatewayService:
             filename=filename,
             photo_url=photo_url,
             analysis=analysis_text,
-            user_message=user_message
+            user_message=user_message,
+            site_id=site_id
         )
         
         # 保存分析結果
@@ -405,16 +426,17 @@ class OathGatewayService:
         return {"ok": False, "error": "所有 AI 服務均失敗"}
     
     def _build_oath_response(self, filename: str, photo_url: str, 
-                           analysis: str, user_message: str) -> str:
+                           analysis: str, user_message: str, site_id: str = "jetson1") -> str:
         """構建誓語格式的響應"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         response = f"願主師父在上，弟子回報：\n"
         response += f"時間：{timestamp}\n"
-        response += f"（1）拍照完成：{filename if filename else '照片已拍攝'}\n"
-        response += f"（2）照片連結：{photo_url if photo_url else '無有效連結'}\n"
-        response += f"（3）分析結果：\n{analysis}\n"
-        response += f"（4）用戶指令：{user_message}\n"
+        response += f"（1）執行機位：{site_id}\n"
+        response += f"（2）拍照完成：{filename if filename else '照片已拍攝'}\n"
+        response += f"（3）照片連結：{photo_url if photo_url else '無有效連結'}\n"
+        response += f"（4）分析結果：\n{analysis}\n"
+        response += f"（5）用戶指令：{user_message}\n"
         
         return response
     
@@ -426,8 +448,8 @@ class OathGatewayService:
             "timestamp": datetime.now().isoformat()
         }
         
-        # 嘗試從 Site Bridge 獲取最新照片
-        latest_photo = self.site_bridge.get_latest_photo()
+        # 嘗試從預設 Site Bridge (jetson1) 獲取最新照片
+        latest_photo = self.bridges["jetson1"].get_latest_photo()
         if latest_photo:
             result["latest_photo_from_bridge"] = latest_photo
         
@@ -483,7 +505,8 @@ def health():
     config_errors = Config.validate()
     
     # 檢查 Site Bridge 連接
-    bridge_health = service.site_bridge.health()
+    bridge_health = service.bridges["jetson1"].health()
+    bridge_2_health = service.bridges["jetson2"].health() if "jetson2" in service.bridges else {"ok": True, "note": "未配置"}
     
     status = {
         "ok": len(config_errors) == 0 and bridge_health["ok"],
@@ -491,7 +514,8 @@ def health():
         "version": Config.SERVICE_VERSION,
         "timestamp": datetime.now().isoformat(),
         "config_errors": config_errors,
-        "site_bridge": bridge_health,
+        "site_bridge_1": bridge_health,
+        "site_bridge_2": bridge_2_health,
         "deepseek_configured": bool(Config.DEEPSEEK_API_KEY),
         "openai_configured": bool(Config.OPENAI_API_KEY),
         "rag_configured": bool(Config.RAG_URL)
