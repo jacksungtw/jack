@@ -51,8 +51,8 @@ class Config:
     RESULTS_DIR = os.environ.get("RESULTS_DIR", "/home/jetson/data/results")
     
     # 外部服務配置
-    SITE_BRIDGE_URL = os.environ.get("SITE_BRIDGE_URL", "")
-    SITE_BRIDGE_2_URL = os.environ.get("SITE_BRIDGE_2_URL", "")
+    SITE_BRIDGE_URL = os.environ.get("SITE_BRIDGE_URL", "http://100.88.112.41:9001")
+    SITE_BRIDGE_2_URL = os.environ.get("SITE_BRIDGE_2_URL", "http://100.97.143.92:9001")
     DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     RAG_URL = os.environ.get("RAG_URL", "")
