@@ -283,6 +283,25 @@ class OathGatewayService:
         
         return self.bridges["jetson1"], "jetson1", Config.SITE_BRIDGE_URL
 
+    def _download_image_base64(self, photo_url: str) -> Optional[str]:
+        """下載圖片並轉為 Base64"""
+        if not photo_url:
+            return None
+        import base64
+        import urllib.request
+        try:
+            logger.info(f"正在下載圖片供 AI 分析: {photo_url}")
+            proxies = TAILSCALE_PROXY if "100." in photo_url else None
+            response = requests.get(photo_url, timeout=10, proxies=proxies)
+            if response.status_code == 200:
+                logger.info("圖片下載並成功轉換為 Base64")
+                return base64.b64encode(response.content).decode("utf-8")
+            else:
+                logger.warning(f"下載圖片失敗 HTTP {response.status_code}")
+        except Exception as e:
+            logger.error(f"下載圖片異常: {e}")
+        return None
+
     def process_photo_inspection(self, user_message: str) -> Dict[str, Any]:
         """
         處理拍照檢查請求
@@ -324,11 +343,16 @@ class OathGatewayService:
             "data": photo_data
         }
         
+        # 下載圖片 Base64 (用以提供給 Vision 模型)
+        base64_image = None
+        if self.openai:
+            base64_image = self._download_image_base64(photo_url)
+
         # 2. 準備分析消息
-        messages = self._build_inspection_messages(user_message, photo_data)
+        messages = self._build_inspection_messages(user_message, photo_data, base64_image)
         
         # 3. 調用 AI 分析
-        ai_result = self._call_ai_for_analysis(messages)
+        ai_result = self._call_ai_for_analysis(messages, has_vision=bool(base64_image))
         if not ai_result["ok"]:
             return {
                 "ok": False,
@@ -365,11 +389,11 @@ class OathGatewayService:
             "download_url": photo_url
         }
     
-    def _build_inspection_messages(self, user_message: str, photo_data: Dict) -> List[Dict]:
+    def _build_inspection_messages(self, user_message: str, photo_data: Dict, base64_image: Optional[str] = None) -> List[Dict]:
         """構建拍照檢查消息"""
         system_prompt = """你是一個智能相機助手，專門分析照片的亮度、顏色和視覺特徵。
         
-請根據用戶的指令和照片信息，提供專業的分析報告。
+請根據用戶的指令和照片信息，提供專業的分析報告。如果提供了真實影像，請一定要根據影像回答。
 
 分析時請關注：
 1. 亮度分類（過暗/正常/過亮）
@@ -390,14 +414,56 @@ class OathGatewayService:
             "note": "照片可通過提供的URL下載查看"
         }, ensure_ascii=False, indent=2)
         
+        content_array = [
+            {"type": "text", "text": f"用戶指令: {user_message}\n\n照片信息:\n{photo_info}\n\n請以你看到的真實影像進行分析報告。"}
+        ]
+        
+        if base64_image:
+            content_array.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
+            
         return [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"用戶指令: {user_message}\n\n照片信息:\n{photo_info}\n\n請分析照片並提供詳細報告。"}
+            {"role": "user", "content": content_array if base64_image else content_array[0]["text"]}
         ]
     
-    def _call_ai_for_analysis(self, messages: List[Dict]) -> Dict[str, Any]:
+    def _call_ai_for_analysis(self, messages: List[Dict], has_vision: bool = False) -> Dict[str, Any]:
         """調用 AI 進行分析，支持備援"""
-        # 首先嘗試 DeepSeek
+        
+        # 如果是視覺任務且支援 OpenAI 呼叫，優先嘗試 OpenAI (假設使用 gpt-4o-mini 或 gpt-4o)
+        if has_vision and self.openai:
+            logger.info("檢測到圖像資料，優先嘗試呼叫 Vision API (OpenAI 相容)")
+            vision_model = os.environ.get("VISION_MODEL", "gpt-4o-mini")
+            result = self.openai.chat_completion(
+                messages=messages,
+                model=vision_model,
+                max_tokens=500,
+                temperature=0.7
+            )
+            
+            if result["ok"]:
+                content = result["data"]["choices"][0]["message"]["content"]
+                return {"ok": True, "analysis": f"(來自 {vision_model} 視覺分析)\n{content}", "provider": "openai-vision"}
+            else:
+                logger.warning(f"Vision API 分析失敗: {result.get('error')}，將 fallback 退回純文字 AI")
+
+        # Fallback 到純文字理解 (DeepSeek 不支援 base64 陣列)
+        text_messages = []
+        for msg in messages:
+            if isinstance(msg["content"], list):
+                text_content = ""
+                for part in msg["content"]:
+                    if part.get("type") == "text":
+                        text_content += part.get("text", "")
+                text_messages.append({"role": msg["role"], "content": text_content})
+            else:
+                text_messages.append(msg)
+
+        # 嘗試 DeepSeek
         result = self.deepseek.chat_completion(
             messages=messages,
             model="deepseek-chat",
